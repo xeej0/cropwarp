@@ -1,0 +1,895 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Cropwarp: Photo Cropper and Perspective Fix</title>
+<meta name="description" content="Crop, straighten, resize and perspective-correct photos right in your browser. Nothing is uploaded.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%234c8dff'/%3E%3Cpath d='M9 5v18h18M5 9h18v18' stroke='white' stroke-width='3' fill='none'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0e1014; --surface:#161920; --surface2:#1d212a; --border:#2a2f3b;
+  --text:#e8eaf0; --muted:#8c94a8; --accent:#4c8dff; --accent-ink:#06142e;
+  --danger:#ff6b6b; --radius:10px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color-scheme:dark;
+  display:flex;flex-direction:column;overflow:hidden}
+button,select,input{font:inherit;color:inherit}
+button{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer;min-height:36px}
+button:hover:not(:disabled){border-color:#445}
+button:disabled{opacity:.4;cursor:default}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button.primary:hover:not(:disabled){filter:brightness(1.1)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+select,input[type=number]{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:6px 8px;min-height:36px}
+input[type=number]{width:100%}
+input[type=range]{width:100%;accent-color:var(--accent)}
+
+header{display:flex;align-items:center;gap:12px;padding:8px 14px;background:var(--surface);border-bottom:1px solid var(--border);flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:8px;font-weight:700;letter-spacing:.2px;margin-right:auto}
+.brand svg{width:26px;height:26px}
+.hgroup{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.export{display:flex;gap:6px;align-items:center;padding-left:10px;border-left:1px solid var(--border)}
+.export input[type=range]{width:90px}
+#qwrap{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:12px}
+
+main{flex:1;min-height:0;display:grid;grid-template-columns:68px 1fr 310px}
+#tools{display:flex;flex-direction:column;gap:4px;padding:8px;background:var(--surface);border-right:1px solid var(--border)}
+#tools button{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px;font-size:11px;background:transparent;border-color:transparent;color:var(--muted)}
+#tools button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+#tools button[aria-pressed=true]{background:var(--surface2);border-color:var(--border);color:var(--accent)}
+
+#stage{position:relative;min-height:0;min-width:0;overflow:hidden;background:#0a0b0e}
+#view{position:absolute;inset:0;margin:auto;touch-action:none;display:none;
+  background:conic-gradient(#2a2d35 25%,#23262d 0 50%,#2a2d35 0 75%,#23262d 0) 0 0/16px 16px;
+  box-shadow:0 0 0 1px var(--border),0 12px 40px rgba(0,0,0,.5)}
+body.has #view{display:block}
+#dims{position:absolute;left:10px;bottom:8px;font-size:12px;color:var(--muted);background:rgba(10,11,14,.7);padding:2px 8px;border-radius:6px;display:none;pointer-events:none}
+body.has #dims{display:block}
+#empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:20px}
+body.has #empty{display:none}
+#drop{max-width:420px;width:100%;text-align:center;border:2px dashed var(--border);border-radius:16px;padding:36px 24px;transition:.15s}
+body.dragging #drop{border-color:var(--accent);background:rgba(76,141,255,.08)}
+#drop h1{font-size:20px;margin:0 0 6px}
+#drop p{color:var(--muted);margin:0 0 18px}
+#drop .row{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+
+#panel{background:var(--surface);border-left:1px solid var(--border);overflow:auto;padding:14px}
+.sec{display:none;flex-direction:column;gap:12px}
+.sec.on{display:flex}
+.sec h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0}
+.hint{color:var(--muted);font-size:12px;margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{padding:5px 10px;min-height:32px;font-size:13px}
+.chips button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+label.f{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+label.r{display:flex;flex-direction:column;gap:2px;font-size:13px}
+label.r .top{display:flex;justify-content:space-between}
+label.r .top span:last-child{color:var(--muted);font-variant-numeric:tabular-nums}
+label.c{display:flex;gap:8px;align-items:center;font-size:13px}
+.actions{display:flex;gap:8px}
+.actions button{flex:1}
+#pthumb{width:100%;max-height:200px;object-fit:contain;background:conic-gradient(#2a2d35 25%,#23262d 0 50%,#2a2d35 0 75%,#23262d 0) 0 0/12px 12px;border:1px solid var(--border);border-radius:8px}
+.stat{font-size:12px;color:var(--muted)}
+
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%) translateY(20px);background:var(--surface2);border:1px solid var(--border);padding:9px 16px;border-radius:999px;opacity:0;pointer-events:none;transition:.25s;z-index:9;max-width:90vw;text-align:center}
+#toast.show{opacity:1;transform:translateX(-50%)}
+
+body:not(.has) .needs{opacity:.4;pointer-events:none}
+
+@media (pointer:coarse){button,select,input[type=number]{min-height:44px}.chips button{min-height:40px}}
+@media (max-width:860px){
+  body{overflow:auto;height:auto;min-height:100%}
+  main{display:flex;flex-direction:column}
+  #tools{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--border);order:2}
+  #tools button{flex:1;min-width:60px}
+  #stage{order:1;height:56vh;height:56dvh;flex:none}
+  #panel{order:3;border-left:0;border-top:1px solid var(--border)}
+  .export{border-left:0;padding-left:0}
+  header{padding:8px 10px}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#4c8dff"/><path d="M9 5v18h18M5 9h18v18" stroke="#fff" stroke-width="3" fill="none"/></svg>
+    Cropwarp
+  </div>
+  <div class="hgroup">
+    <button id="open" type="button">Open image</button>
+    <button id="undo" type="button" class="needs" disabled>Undo</button>
+    <button id="redo" type="button" class="needs" disabled>Redo</button>
+    <button id="reset" type="button" class="needs" disabled>Revert</button>
+  </div>
+  <div class="export needs">
+    <select id="fmt" aria-label="Export format">
+      <option value="image/png">PNG</option>
+      <option value="image/jpeg">JPEG</option>
+      <option value="image/webp">WebP</option>
+    </select>
+    <label id="qwrap" hidden>Quality <input id="q" type="range" min="40" max="100" value="92" aria-label="Quality"><span id="qv">92</span></label>
+    <button id="dl" type="button" class="primary">Download</button>
+  </div>
+  <input id="file" type="file" accept="image/*" hidden>
+</header>
+
+<main>
+  <nav id="tools" aria-label="Tools">
+    <button type="button" data-tool="crop" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M6 2v14a2 2 0 0 0 2 2h14M2 6h14a2 2 0 0 1 2 2v14"/></svg>Crop</button>
+    <button type="button" data-tool="persp" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M7 4h10l4 16H3z"/><circle cx="7" cy="4" r="1.2"/><circle cx="17" cy="4" r="1.2"/><circle cx="21" cy="20" r="1.2"/><circle cx="3" cy="20" r="1.2"/></svg>Perspective</button>
+    <button type="button" data-tool="rotate" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Rotate</button>
+    <button type="button" data-tool="resize" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>Resize</button>
+    <button type="button" data-tool="adjust" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg>Adjust</button>
+  </nav>
+
+  <section id="stage" aria-label="Canvas">
+    <canvas id="view"></canvas>
+    <div id="dims"></div>
+    <div id="empty">
+      <div id="drop">
+        <h1>Drop a photo here</h1>
+        <p>Crop, fix perspective, straighten, resize. Everything runs in your browser and nothing is uploaded.</p>
+        <div class="row">
+          <button type="button" class="primary" id="open2">Choose image</button>
+          <button type="button" id="sample">Try a sample</button>
+        </div>
+        <p class="hint" style="margin-top:14px">You can also paste an image with Ctrl/Cmd+V.</p>
+      </div>
+    </div>
+  </section>
+
+  <aside id="panel" class="needs">
+    <!-- CROP -->
+    <div class="sec on" data-panel="crop">
+      <h2>Crop</h2>
+      <div class="chips" id="ratios">
+        <button type="button" data-ar="0" aria-pressed="true">Free</button>
+        <button type="button" data-ar="1">1:1</button>
+        <button type="button" data-ar="1.3333333">4:3</button>
+        <button type="button" data-ar="1.5">3:2</button>
+        <button type="button" data-ar="1.7777778">16:9</button>
+        <button type="button" data-ar="orig">Original</button>
+        <button type="button" id="swapar" title="Swap landscape and portrait">Swap</button>
+      </div>
+      <div class="grid2">
+        <label class="f">X<input id="cx" type="number" min="0" step="1"></label>
+        <label class="f">Y<input id="cy" type="number" min="0" step="1"></label>
+        <label class="f">Width<input id="cw" type="number" min="1" step="1"></label>
+        <label class="f">Height<input id="ch" type="number" min="1" step="1"></label>
+      </div>
+      <p class="hint">Drag the box or its handles. Drag outside the box to draw a new one.</p>
+      <div class="actions">
+        <button type="button" id="cropReset">Reset box</button>
+        <button type="button" class="primary" id="cropApply">Apply crop</button>
+      </div>
+    </div>
+
+    <!-- PERSPECTIVE -->
+    <div class="sec" data-panel="persp">
+      <h2>Perspective correction</h2>
+      <p class="hint">Drag the four corners onto the corners of the object (a document, sign, screen, whiteboard). The result is flattened to a straight-on rectangle.</p>
+      <label class="f">Output shape
+        <select id="pratio">
+          <option value="0">Auto (match the selection)</option>
+          <option value="1">Square 1:1</option>
+          <option value="1.3333333">4:3</option>
+          <option value="1.5">3:2</option>
+          <option value="1.7777778">16:9</option>
+          <option value="0.7070707">A4 portrait</option>
+          <option value="1.4142857">A4 landscape</option>
+          <option value="0.7727273">US Letter portrait</option>
+          <option value="1.2941176">US Letter landscape</option>
+        </select>
+      </label>
+      <canvas id="pthumb" width="220" height="160"></canvas>
+      <div class="stat" id="psize"></div>
+      <div class="actions">
+        <button type="button" id="perspReset">Reset corners</button>
+        <button type="button" class="primary" id="perspApply">Flatten</button>
+      </div>
+    </div>
+
+    <!-- ROTATE -->
+    <div class="sec" data-panel="rotate">
+      <h2>Rotate and flip</h2>
+      <div class="grid4">
+        <button type="button" id="rl" title="Rotate 90 degrees left">&#8634; 90</button>
+        <button type="button" id="rr" title="Rotate 90 degrees right">&#8635; 90</button>
+        <button type="button" id="fh" title="Flip horizontally">Flip H</button>
+        <button type="button" id="fv" title="Flip vertically">Flip V</button>
+      </div>
+      <h2 style="margin-top:6px">Straighten</h2>
+      <label class="r"><span class="top"><span>Angle</span><span id="angv">0.0&deg;</span></span>
+        <input id="ang" type="range" min="-45" max="45" step="0.1" value="0"></label>
+      <label class="c"><input id="rfit" type="checkbox" checked> Crop to remove empty corners</label>
+      <div class="actions">
+        <button type="button" id="angReset">Reset</button>
+        <button type="button" class="primary" id="angApply">Apply</button>
+      </div>
+    </div>
+
+    <!-- RESIZE -->
+    <div class="sec" data-panel="resize">
+      <h2>Resize</h2>
+      <div class="stat" id="curSize"></div>
+      <div class="grid2">
+        <label class="f">Width (px)<input id="rw" type="number" min="1" max="10000" step="1"></label>
+        <label class="f">Height (px)<input id="rh" type="number" min="1" max="10000" step="1"></label>
+      </div>
+      <label class="c"><input id="rlock" type="checkbox" checked> Lock aspect ratio</label>
+      <div class="chips" id="rpre">
+        <button type="button" data-pct="25">25%</button>
+        <button type="button" data-pct="50">50%</button>
+        <button type="button" data-pct="75">75%</button>
+        <button type="button" data-pct="200">200%</button>
+        <button type="button" data-edge="1080">1080 long</button>
+        <button type="button" data-edge="1920">1920 long</button>
+        <button type="button" data-edge="2048">2048 long</button>
+      </div>
+      <button type="button" class="primary" id="resApply">Apply resize</button>
+    </div>
+
+    <!-- ADJUST -->
+    <div class="sec" data-panel="adjust">
+      <h2>Adjust</h2>
+      <label class="r"><span class="top"><span>Brightness</span><span id="bv">0</span></span><input id="adjb" type="range" min="-100" max="100" value="0"></label>
+      <label class="r"><span class="top"><span>Contrast</span><span id="cv">0</span></span><input id="adjc" type="range" min="-100" max="100" value="0"></label>
+      <label class="r"><span class="top"><span>Saturation</span><span id="sv">0</span></span><input id="adjs" type="range" min="-100" max="100" value="0"></label>
+      <p class="hint">Set saturation to -100 for black and white.</p>
+      <div class="actions">
+        <button type="button" id="adjReset">Reset</button>
+        <button type="button" class="primary" id="adjApply">Apply</button>
+      </div>
+    </div>
+  </aside>
+</main>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+'use strict';
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const MAX_EDGE = 6000;   // images larger than this are scaled down on load
+const MAX_OUT = 10000;   // largest allowed output edge for resize
+const stage = $('#stage'), view = $('#view'), ctx = view.getContext('2d');
+const coarse = matchMedia('(pointer:coarse)').matches;
+const HR = coarse ? 24 : 14; // handle hit radius in CSS px
+
+let work = null, original = null, fileName = 'photo';
+let undoS = [], redoS = [];
+let tool = 'crop';
+let scale = 1, dpr = 1, disp = null, srcCache = null, smallCache = null;
+const S = {
+  crop: { x: 0, y: 0, w: 0, h: 0 }, ar: 0, arSel: '0',
+  pts: [], pratio: 0,
+  angle: 0, prev: null,
+  adj: { b: 0, c: 0, s: 0 },
+  drag: null,
+};
+
+/* ---------- helpers ---------- */
+function mk(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+let toastT;
+function toast(msg) {
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+/* ---------- loading ---------- */
+function loadFile(f) {
+  if (!f) return;
+  if (!f.type.startsWith('image/')) return toast('That file is not an image.');
+  const url = URL.createObjectURL(f);
+  const img = new Image();
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    fileName = (f.name || 'photo').replace(/\.[^.]+$/, '') || 'photo';
+    fromSource(img, img.naturalWidth, img.naturalHeight);
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); toast('Could not read that image. HEIC is only supported in Safari.'); };
+  img.src = url;
+}
+function fromSource(src, w, h) {
+  let k = Math.min(1, MAX_EDGE / Math.max(w, h));
+  const c = mk(Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
+  const g = c.getContext('2d'); g.imageSmoothingQuality = 'high';
+  g.drawImage(src, 0, 0, c.width, c.height);
+  original = c; undoS = []; redoS = [];
+  document.body.classList.add('has');
+  if (k < 1) toast(`Large image scaled down to ${c.width} x ${c.height}`);
+  setWork(c, false);
+}
+
+/* ---------- state ---------- */
+function setWork(c, push = true) {
+  if (push && work) { undoS.push(work); if (undoS.length > 15) undoS.shift(); }
+  if (push) redoS = [];
+  work = c; srcCache = null; smallCache = null;
+  resetToolState(); layout(); updateUI();
+}
+function undo() { if (!undoS.length) return; redoS.push(work); work = undoS.pop(); srcCache = smallCache = null; resetToolState(); layout(); updateUI(); }
+function redo() { if (!redoS.length) return; undoS.push(work); work = redoS.pop(); srcCache = smallCache = null; resetToolState(); layout(); updateUI(); }
+function updateUI() {
+  $('#undo').disabled = !undoS.length;
+  $('#redo').disabled = !redoS.length;
+  $('#reset').disabled = !work || work === original;
+  if (work) {
+    $('#dims').textContent = `${work.width} x ${work.height} px`;
+    $('#curSize').textContent = `Current size: ${work.width} x ${work.height} px`;
+  }
+}
+function resetToolState() {
+  if (!work) return;
+  const W = work.width, H = work.height;
+  S.pts = [{ x: W * .1, y: H * .1 }, { x: W * .9, y: H * .1 }, { x: W * .9, y: H * .9 }, { x: W * .1, y: H * .9 }];
+  S.angle = 0; S.prev = null; $('#ang').value = 0; $('#angv').textContent = '0.0°';
+  S.adj = { b: 0, c: 0, s: 0 }; ['b', 'c', 's'].forEach(k => { $('#adj' + k).value = 0; $('#' + k + 'v').textContent = 0; });
+  $('#rw').value = W; $('#rh').value = H;
+  if (S.arSel === 'orig') S.ar = W / H;
+  initCrop();
+}
+function initCrop() {
+  const W = work.width, H = work.height;
+  const m = .08;
+  let r = { x: W * m, y: H * m, w: W * (1 - 2 * m), h: H * (1 - 2 * m) };
+  if (S.ar) r = fitRatio(r, S.ar);
+  S.crop = r; syncCropInputs();
+}
+function fitRatio(r, ar) {
+  let w = r.w, h = r.w / ar;
+  if (h > r.h) { h = r.h; w = h * ar; }
+  return { x: r.x + (r.w - w) / 2, y: r.y + (r.h - h) / 2, w, h };
+}
+
+/* ---------- layout and drawing ---------- */
+function layout() {
+  if (!work) return;
+  disp = (tool === 'rotate' && S.prev) ? S.prev : work;
+  const r = stage.getBoundingClientRect(), pad = 18;
+  const aw = Math.max(60, r.width - pad * 2), ah = Math.max(60, r.height - pad * 2);
+  scale = Math.min(aw / disp.width, ah / disp.height);
+  dpr = window.devicePixelRatio || 1;
+  const cw = disp.width * scale, ch = disp.height * scale;
+  view.style.width = cw + 'px'; view.style.height = ch + 'px';
+  view.width = Math.max(1, Math.round(cw * dpr)); view.height = Math.max(1, Math.round(ch * dpr));
+  draw();
+}
+function cssFilter() {
+  const a = S.adj;
+  return `brightness(${1 + a.b / 100}) contrast(${1 + a.c / 100}) saturate(${1 + a.s / 100})`;
+}
+function draw() {
+  if (!work || !disp) return;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, view.width, view.height);
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(disp, 0, 0, view.width, view.height);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  view.style.filter = tool === 'adjust' ? cssFilter() : 'none';
+  if (tool === 'crop') drawCrop();
+  else if (tool === 'persp') drawPersp();
+}
+const vw = () => view.width / dpr, vh = () => view.height / dpr;
+
+/* ---------- crop ---------- */
+function cropHandles() {
+  const { x, y, w, h } = S.crop, k = scale;
+  const X = x * k, Y = y * k, W = w * k, H = h * k;
+  const hs = [
+    { id: 'tl', x: X, y: Y }, { id: 'tr', x: X + W, y: Y },
+    { id: 'br', x: X + W, y: Y + H }, { id: 'bl', x: X, y: Y + H },
+  ];
+  if (!S.ar) hs.push({ id: 't', x: X + W / 2, y: Y }, { id: 'r', x: X + W, y: Y + H / 2 },
+    { id: 'b', x: X + W / 2, y: Y + H }, { id: 'l', x: X, y: Y + H / 2 });
+  return hs;
+}
+function drawCrop() {
+  const { x, y, w, h } = S.crop, k = scale;
+  const X = x * k, Y = y * k, W = w * k, H = h * k;
+  ctx.fillStyle = 'rgba(0,0,0,.58)';
+  ctx.beginPath(); ctx.rect(0, 0, vw(), vh()); ctx.rect(X, Y, W, H); ctx.fill('evenodd');
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.strokeRect(X, Y, W, H);
+  ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1; ctx.beginPath();
+  for (let i = 1; i < 3; i++) {
+    ctx.moveTo(X + W * i / 3, Y); ctx.lineTo(X + W * i / 3, Y + H);
+    ctx.moveTo(X, Y + H * i / 3); ctx.lineTo(X + W, Y + H * i / 3);
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#1b1e26'; ctx.lineWidth = 1;
+  for (const p of cropHandles()) { ctx.beginPath(); ctx.rect(p.x - 5, p.y - 5, 10, 10); ctx.fill(); ctx.stroke(); }
+}
+function rectFromAnchor(ax, ay, px, py, ar) {
+  const W = work.width, H = work.height;
+  const sx = px >= ax ? 1 : -1, sy = py >= ay ? 1 : -1;
+  const maxW = sx > 0 ? W - ax : ax, maxH = sy > 0 ? H - ay : ay;
+  let w = Math.min(Math.abs(px - ax), maxW), h = Math.min(Math.abs(py - ay), maxH);
+  if (ar) {
+    w = Math.max(w, h * ar); h = w / ar;
+    if (w > maxW) { w = maxW; h = w / ar; }
+    if (h > maxH) { h = maxH; w = h * ar; }
+  }
+  return { x: sx > 0 ? ax : ax - w, y: sy > 0 ? ay : ay - h, w, h };
+}
+function cropDrag(p) {
+  const d = S.drag, s = d.start, W = work.width, H = work.height, m = d.mode;
+  const MIN = Math.max(2, 10 / scale);
+  if (m === 'move') {
+    S.crop = { ...s, x: clamp(s.x + p.x - d.p0.x, 0, W - s.w), y: clamp(s.y + p.y - d.p0.y, 0, H - s.h) };
+  } else if (m === 'new') {
+    S.crop = rectFromAnchor(clamp(d.p0.x, 0, W), clamp(d.p0.y, 0, H), clamp(p.x, 0, W), clamp(p.y, 0, H), S.ar);
+  } else if (m.length === 2) {
+    const ax = m.includes('l') ? s.x + s.w : s.x, ay = m.includes('t') ? s.y + s.h : s.y;
+    S.crop = rectFromAnchor(ax, ay, clamp(p.x, 0, W), clamp(p.y, 0, H), S.ar);
+  } else {
+    let x1 = s.x, y1 = s.y, x2 = s.x + s.w, y2 = s.y + s.h;
+    if (m === 'l') x1 = clamp(p.x, 0, x2 - MIN);
+    if (m === 'r') x2 = clamp(p.x, x1 + MIN, W);
+    if (m === 't') y1 = clamp(p.y, 0, y2 - MIN);
+    if (m === 'b') y2 = clamp(p.y, y1 + MIN, H);
+    S.crop = { x: x1, y: y1, w: x2 - x1, h: y2 - y1 };
+  }
+  syncCropInputs(); draw();
+}
+function syncCropInputs() {
+  const c = S.crop;
+  $('#cx').value = Math.round(c.x); $('#cy').value = Math.round(c.y);
+  $('#cw').value = Math.round(c.w); $('#ch').value = Math.round(c.h);
+}
+function readCropInputs() {
+  const W = work.width, H = work.height;
+  let x = clamp(+$('#cx').value || 0, 0, W - 1), y = clamp(+$('#cy').value || 0, 0, H - 1);
+  let w = clamp(+$('#cw').value || 1, 1, W - x), h = clamp(+$('#ch').value || 1, 1, H - y);
+  S.crop = { x, y, w, h }; syncCropInputs(); draw();
+}
+function applyCrop() {
+  const W = work.width, H = work.height, c = S.crop;
+  const x = clamp(Math.round(c.x), 0, W - 1), y = clamp(Math.round(c.y), 0, H - 1);
+  const w = clamp(Math.round(c.w), 1, W - x), h = clamp(Math.round(c.h), 1, H - y);
+  if (w === W && h === H) return toast('The crop box covers the whole image.');
+  const n = mk(w, h); n.getContext('2d').drawImage(work, x, y, w, h, 0, 0, w, h);
+  setWork(n); toast(`Cropped to ${w} x ${h}`);
+}
+
+/* ---------- perspective ---------- */
+function solve8(A, b) {
+  const n = 8, M = A.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    if (Math.abs(M[p][c]) < 1e-12) return null;
+    [M[c], M[p]] = [M[p], M[c]];
+    for (let r = 0; r < n; r++) {
+      if (r === c) continue;
+      const f = M[r][c] / M[c][c];
+      for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k];
+    }
+  }
+  return M.map((r, i) => r[n] / r[i]);
+}
+// Homography mapping each dst[i] to src[i]: [h0..h7], h8 = 1
+function homography(dst, src) {
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const { x, y } = dst[i], { x: u, y: v } = src[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+  }
+  return solve8(A, b);
+}
+function perspSize() {
+  const [tl, tr, br, bl] = S.pts, d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  let w = Math.max(d(tl, tr), d(bl, br)), h = Math.max(d(tl, bl), d(tr, br));
+  w = Math.max(w, 1); h = Math.max(h, 1);
+  if (S.pratio) { const a = w * h; h = Math.sqrt(a / S.pratio); w = h * S.pratio; }
+  const k = Math.min(1, MAX_EDGE / Math.max(w, h));
+  return [Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k))];
+}
+function isConvex(p) {
+  let sign = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = p[i], b = p[(i + 1) % 4], c = p[(i + 2) % 4];
+    const z = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+    if (Math.abs(z) < 1e-6) return false;
+    const s = Math.sign(z); if (sign && s !== sign) return false; sign = s;
+  }
+  return true;
+}
+function warp(src, H, ow, oh) {
+  const sw = src.width, sh = src.height, s = src.data;
+  const out = new ImageData(ow, oh), o = out.data;
+  const h0 = H[0], h1 = H[1], h2 = H[2], h3 = H[3], h4 = H[4], h5 = H[5], h6 = H[6], h7 = H[7];
+  let i = 0;
+  for (let y = 0; y < oh; y++) {
+    const Y = y + .5;
+    for (let x = 0; x < ow; x++, i += 4) {
+      const X = x + .5, dn = h6 * X + h7 * Y + 1;
+      const u = (h0 * X + h1 * Y + h2) / dn - .5, v = (h3 * X + h4 * Y + h5) / dn - .5;
+      const x0 = Math.floor(u), y0 = Math.floor(v), fx = u - x0, fy = v - y0;
+      const xa = clamp(x0, 0, sw - 1), xb = clamp(x0 + 1, 0, sw - 1);
+      const ya = clamp(y0, 0, sh - 1), yb = clamp(y0 + 1, 0, sh - 1);
+      const p00 = (ya * sw + xa) * 4, p10 = (ya * sw + xb) * 4, p01 = (yb * sw + xa) * 4, p11 = (yb * sw + xb) * 4;
+      const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
+      o[i] = s[p00] * w00 + s[p10] * w10 + s[p01] * w01 + s[p11] * w11;
+      o[i + 1] = s[p00 + 1] * w00 + s[p10 + 1] * w10 + s[p01 + 1] * w01 + s[p11 + 1] * w11;
+      o[i + 2] = s[p00 + 2] * w00 + s[p10 + 2] * w10 + s[p01 + 2] * w01 + s[p11 + 2] * w11;
+      o[i + 3] = s[p00 + 3] * w00 + s[p10 + 3] * w10 + s[p01 + 3] * w01 + s[p11 + 3] * w11;
+    }
+  }
+  return out;
+}
+function getSrc() {
+  if (!srcCache) srcCache = work.getContext('2d').getImageData(0, 0, work.width, work.height);
+  return srcCache;
+}
+function outCorners(w, h) { return [{ x: 0, y: 0 }, { x: w, y: 0 }, { x: w, y: h }, { x: 0, y: h }]; }
+function perspHomography(ow, oh) { return homography(outCorners(ow, oh), S.pts); }
+
+function drawPersp() {
+  const k = scale, P = S.pts.map(p => ({ x: p.x * k, y: p.y * k }));
+  const ok = isConvex(S.pts);
+  const col = ok ? '#4c8dff' : '#ff6b6b';
+  ctx.fillStyle = ok ? 'rgba(76,141,255,.14)' : 'rgba(255,107,107,.14)';
+  ctx.beginPath(); P.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
+  if (ok) { // perspective-correct grid
+    const [ow, oh] = [300, 300], Hm = perspHomography(ow, oh);
+    if (Hm) {
+      const map = (x, y) => { const d = Hm[6] * x + Hm[7] * y + 1; return [(Hm[0] * x + Hm[1] * y + Hm[2]) / d * k, (Hm[3] * x + Hm[4] * y + Hm[5]) / d * k]; };
+      ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1; ctx.beginPath();
+      for (let i = 1; i < 4; i++) {
+        let a = map(ow * i / 4, 0), b = map(ow * i / 4, oh); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
+        a = map(0, oh * i / 4); b = map(ow, oh * i / 4); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
+      }
+      ctx.stroke();
+    }
+  }
+  P.forEach((p, i) => {
+    ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff'; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 2.5; ctx.stroke();
+    ctx.fillStyle = '#0e1014'; ctx.font = '600 10px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(i + 1, p.x, p.y + .5);
+  });
+  if (S.drag && S.drag.mode === 'pt') drawLoupe(S.drag.idx);
+}
+function drawLoupe(i) {
+  const pt = S.pts[i], R = 58, side = (2 * R) / Math.max(scale * 4, 3);
+  const lx = pt.x * scale < vw() / 2 ? vw() - R - 10 : R + 10, ly = R + 10;
+  ctx.save();
+  ctx.beginPath(); ctx.arc(lx, ly, R, 0, Math.PI * 2); ctx.clip();
+  ctx.fillStyle = '#000'; ctx.fillRect(lx - R, ly - R, 2 * R, 2 * R);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(work, pt.x - side / 2, pt.y - side / 2, side, side, lx - R, ly - R, 2 * R, 2 * R);
+  ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(lx - R, ly); ctx.lineTo(lx + R, ly); ctx.moveTo(lx, ly - R); ctx.lineTo(lx, ly + R); ctx.stroke();
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(lx, ly, R, 0, Math.PI * 2); ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.stroke();
+}
+let thumbQueued = false;
+function updatePerspPreview() {
+  if (thumbQueued) return; thumbQueued = true;
+  requestAnimationFrame(() => {
+    thumbQueued = false;
+    if (!work || tool !== 'persp') return;
+    const [ow, oh] = perspSize();
+    $('#psize').textContent = isConvex(S.pts) ? `Output: ${ow} x ${oh} px` : 'The corners must form a convex shape (no crossing or folding).';
+    const th = $('#pthumb'), k = 220 / Math.max(ow, oh), tw = Math.max(1, Math.round(ow * k)), thh = Math.max(1, Math.round(oh * k));
+    th.width = tw; th.height = thh;
+    const g = th.getContext('2d');
+    if (!isConvex(S.pts)) { g.clearRect(0, 0, tw, thh); return; }
+    const Hm = homography(outCorners(tw, thh), S.pts);
+    if (Hm) g.putImageData(warp(getSrc(), Hm, tw, thh), 0, 0);
+  });
+}
+function applyPersp() {
+  if (!isConvex(S.pts)) return toast('Move the corners so they form a convex shape.');
+  const [ow, oh] = perspSize(), Hm = perspHomography(ow, oh);
+  if (!Hm) return toast('Those corners cannot be flattened. Spread them out.');
+  const n = mk(ow, oh);
+  n.getContext('2d').putImageData(warp(getSrc(), Hm, ow, oh), 0, 0);
+  setWork(n); toast(`Flattened to ${ow} x ${oh}`);
+}
+
+/* ---------- rotate ---------- */
+function rotate90(dir) {
+  const w = work.width, h = work.height, n = mk(h, w), g = n.getContext('2d');
+  if (dir > 0) { g.translate(h, 0); g.rotate(Math.PI / 2); } else { g.translate(0, w); g.rotate(-Math.PI / 2); }
+  g.drawImage(work, 0, 0); setWork(n);
+}
+function flip(h) {
+  const n = mk(work.width, work.height), g = n.getContext('2d');
+  if (h) { g.translate(n.width, 0); g.scale(-1, 1); } else { g.translate(0, n.height); g.scale(1, -1); }
+  g.drawImage(work, 0, 0); setWork(n);
+}
+function maxInscribed(w, h, a) {
+  a = Math.abs(a) % Math.PI; if (a > Math.PI / 2) a = Math.PI - a;
+  const longW = w >= h, L = longW ? w : h, Sh = longW ? h : w;
+  const sin = Math.sin(a), cos = Math.cos(a);
+  if (Sh <= 2 * sin * cos * L || Math.abs(sin - cos) < 1e-9) {
+    const x = .5 * Sh; return longW ? [x / sin, x / cos] : [x / cos, x / sin];
+  }
+  const c2 = cos * cos - sin * sin;
+  return [(w * cos - h * sin) / c2, (h * cos - w * sin) / c2];
+}
+function rotated(src, deg, fit) {
+  const a = deg * Math.PI / 180, w = src.width, h = src.height;
+  const sin = Math.abs(Math.sin(a)), cos = Math.abs(Math.cos(a));
+  const bw = Math.ceil(w * cos + h * sin), bh = Math.ceil(w * sin + h * cos);
+  const full = mk(bw, bh), g = full.getContext('2d');
+  g.imageSmoothingQuality = 'high';
+  g.translate(bw / 2, bh / 2); g.rotate(a); g.drawImage(src, -w / 2, -h / 2);
+  if (!fit) return full;
+  const [rw, rh] = maxInscribed(w, h, a);
+  const n = mk(Math.max(1, Math.floor(rw)), Math.max(1, Math.floor(rh)));
+  n.getContext('2d').drawImage(full, -(bw - n.width) / 2, -(bh - n.height) / 2);
+  return n;
+}
+function getSmall() {
+  if (smallCache) return smallCache;
+  const k = Math.min(1, 1600 / Math.max(work.width, work.height));
+  if (k === 1) return smallCache = work;
+  const c = mk(Math.round(work.width * k), Math.round(work.height * k));
+  const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(work, 0, 0, c.width, c.height);
+  return smallCache = c;
+}
+function updateRotPreview() {
+  S.angle = +$('#ang').value;
+  $('#angv').textContent = S.angle.toFixed(1) + '°';
+  S.prev = S.angle === 0 ? null : rotated(getSmall(), S.angle, $('#rfit').checked);
+  layout();
+}
+function applyAngle() {
+  if (S.angle === 0) return toast('Move the slider first.');
+  const n = rotated(work, S.angle, $('#rfit').checked);
+  setWork(n); toast('Straightened');
+}
+
+/* ---------- resize ---------- */
+function resizeCanvas(src, w, h) {
+  let cur = src;
+  while (cur.width > w * 2 || cur.height > h * 2) {
+    const nw = cur.width > w * 2 ? Math.ceil(cur.width / 2) : w;
+    const nh = cur.height > h * 2 ? Math.ceil(cur.height / 2) : h;
+    const t = mk(nw, nh), g = t.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(cur, 0, 0, nw, nh); cur = t;
+  }
+  const out = mk(w, h), g = out.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(cur, 0, 0, w, h);
+  return out;
+}
+function applyResize() {
+  const w = Math.round(+$('#rw').value), h = Math.round(+$('#rh').value);
+  if (!(w >= 1 && h >= 1) || w > MAX_OUT || h > MAX_OUT) return toast(`Enter a size between 1 and ${MAX_OUT} px.`);
+  if (w * h > 100e6) return toast('That is over 100 megapixels. Pick a smaller size.');
+  if (w === work.width && h === work.height) return toast('The size is unchanged.');
+  setWork(resizeCanvas(work, w, h)); toast(`Resized to ${w} x ${h}`);
+}
+function setSizeFromW() { if ($('#rlock').checked) $('#rh').value = Math.max(1, Math.round(+$('#rw').value * work.height / work.width)); }
+function setSizeFromH() { if ($('#rlock').checked) $('#rw').value = Math.max(1, Math.round(+$('#rh').value * work.width / work.height)); }
+
+/* ---------- adjust ---------- */
+function applyAdjust() {
+  const a = S.adj;
+  if (!a.b && !a.c && !a.s) return toast('Move a slider first.');
+  const bf = 1 + a.b / 100, cf = 1 + a.c / 100, s = 1 + a.s / 100;
+  const n = mk(work.width, work.height), g = n.getContext('2d');
+  g.drawImage(work, 0, 0);
+  const img = g.getImageData(0, 0, n.width, n.height), d = img.data;
+  const m = [.213 + .787 * s, .715 - .715 * s, .072 - .072 * s, .213 - .213 * s, .715 + .285 * s, .072 - .072 * s, .213 - .213 * s, .715 - .715 * s, .072 + .928 * s];
+  const c8 = v => v < 0 ? 0 : v > 255 ? 255 : v;
+  for (let i = 0; i < d.length; i += 4) {
+    let r = c8(d[i] * bf), gg = c8(d[i + 1] * bf), b = c8(d[i + 2] * bf);
+    r = c8((r - 127.5) * cf + 127.5); gg = c8((gg - 127.5) * cf + 127.5); b = c8((b - 127.5) * cf + 127.5);
+    d[i] = c8(m[0] * r + m[1] * gg + m[2] * b);
+    d[i + 1] = c8(m[3] * r + m[4] * gg + m[5] * b);
+    d[i + 2] = c8(m[6] * r + m[7] * gg + m[8] * b);
+  }
+  g.putImageData(img, 0, 0); setWork(n); toast('Adjustments applied');
+}
+
+/* ---------- export ---------- */
+function download() {
+  const type = $('#fmt').value, q = +$('#q').value / 100;
+  let c = work;
+  if (type === 'image/jpeg') { c = mk(work.width, work.height); const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(work, 0, 0); }
+  c.toBlob(b => {
+    if (!b) return toast('Export failed. The image may be too large for this browser.');
+    const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' }[b.type] || 'png';
+    if (b.type !== type) toast(`This browser cannot export that format, saved as ${ext.toUpperCase()} instead.`);
+    else toast(`Saved ${(b.size / 1024).toFixed(0)} KB`);
+    const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+    a.download = `${fileName}-cropwarp.${ext}`; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  }, type, q);
+}
+
+/* ---------- pointer interaction ---------- */
+function pos(e) {
+  const r = view.getBoundingClientRect();
+  const vx = e.clientX - r.left, vy = e.clientY - r.top;
+  return { vx, vy, x: vx / scale, y: vy / scale };
+}
+view.addEventListener('pointerdown', e => {
+  if (!work || e.button > 0) return;
+  const p = pos(e);
+  if (tool === 'crop') {
+    const hit = cropHandles().find(h => Math.hypot(h.x - p.vx, h.y - p.vy) <= HR);
+    const c = S.crop;
+    const inside = p.x >= c.x && p.x <= c.x + c.w && p.y >= c.y && p.y <= c.y + c.h;
+    const mode = hit ? hit.id : inside ? 'move' : 'new';
+    S.drag = { mode, start: { ...c }, p0: p };
+  } else if (tool === 'persp') {
+    let best = -1, bd = HR + 6;
+    S.pts.forEach((q, i) => { const d = Math.hypot(q.x * scale - p.vx, q.y * scale - p.vy); if (d < bd) { bd = d; best = i; } });
+    if (best < 0) return;
+    S.drag = { mode: 'pt', idx: best };
+  } else return;
+  view.setPointerCapture(e.pointerId); e.preventDefault();
+});
+view.addEventListener('pointermove', e => {
+  if (!work) return;
+  const p = pos(e);
+  if (S.drag) {
+    if (tool === 'crop') cropDrag(p);
+    else if (tool === 'persp') {
+      const pt = S.pts[S.drag.idx]; pt.x = clamp(p.x, 0, work.width); pt.y = clamp(p.y, 0, work.height);
+      draw(); updatePerspPreview();
+    }
+    return;
+  }
+  let cur = 'default';
+  if (tool === 'crop') {
+    const hit = cropHandles().find(h => Math.hypot(h.x - p.vx, h.y - p.vy) <= HR);
+    const c = S.crop, inside = p.x >= c.x && p.x <= c.x + c.w && p.y >= c.y && p.y <= c.y + c.h;
+    cur = hit ? ({ tl: 'nwse-resize', br: 'nwse-resize', tr: 'nesw-resize', bl: 'nesw-resize', t: 'ns-resize', b: 'ns-resize', l: 'ew-resize', r: 'ew-resize' })[hit.id] : inside ? 'move' : 'crosshair';
+  } else if (tool === 'persp') {
+    cur = S.pts.some(q => Math.hypot(q.x * scale - p.vx, q.y * scale - p.vy) <= HR + 6) ? 'grab' : 'default';
+  }
+  view.style.cursor = cur;
+});
+const endDrag = () => { if (S.drag) { S.drag = null; draw(); } };
+view.addEventListener('pointerup', endDrag);
+view.addEventListener('pointercancel', endDrag);
+
+/* ---------- tools and UI wiring ---------- */
+function setTool(t) {
+  tool = t; S.drag = null;
+  $$('#tools button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.tool === t)));
+  $$('.sec').forEach(s => s.classList.toggle('on', s.dataset.panel === t));
+  if (t !== 'rotate') S.prev = null;
+  if (t === 'rotate' && S.angle !== 0 && work) updateRotPreview();
+  if (work) { layout(); if (t === 'persp') updatePerspPreview(); }
+}
+$$('#tools button').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
+
+// crop controls
+$$('#ratios button[data-ar]').forEach(b => b.addEventListener('click', () => {
+  $$('#ratios button[data-ar]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  S.arSel = b.dataset.ar;
+  S.ar = S.arSel === 'orig' ? (work ? work.width / work.height : 0) : +S.arSel;
+  if (!work) return;
+  S.crop = S.ar ? fitRatio(S.crop.w > 4 ? S.crop : { x: 0, y: 0, w: work.width, h: work.height }, S.ar) : S.crop;
+  syncCropInputs(); draw();
+}));
+$('#swapar').addEventListener('click', () => {
+  if (!S.ar || !work) return;
+  S.ar = 1 / S.ar; S.arSel = 'custom';
+  $$('#ratios button[data-ar]').forEach(x => x.setAttribute('aria-pressed', 'false'));
+  const c = S.crop, cx = c.x + c.w / 2, cy = c.y + c.h / 2;
+  let w = c.h, h = c.w; // swap box dimensions around its centre, then fit inside the image
+  const k = Math.min(1, work.width / w, work.height / h); w *= k; h *= k;
+  S.crop = { x: clamp(cx - w / 2, 0, work.width - w), y: clamp(cy - h / 2, 0, work.height - h), w, h };
+  syncCropInputs(); draw();
+});
+['cx', 'cy', 'cw', 'ch'].forEach(id => $('#' + id).addEventListener('change', readCropInputs));
+$('#cropReset').addEventListener('click', () => { initCrop(); draw(); });
+$('#cropApply').addEventListener('click', applyCrop);
+
+// perspective controls
+$('#pratio').addEventListener('change', e => { S.pratio = +e.target.value; updatePerspPreview(); });
+$('#perspReset').addEventListener('click', () => { resetToolState(); draw(); updatePerspPreview(); });
+$('#perspApply').addEventListener('click', applyPersp);
+
+// rotate controls
+$('#rl').addEventListener('click', () => rotate90(-1));
+$('#rr').addEventListener('click', () => rotate90(1));
+$('#fh').addEventListener('click', () => flip(true));
+$('#fv').addEventListener('click', () => flip(false));
+$('#ang').addEventListener('input', updateRotPreview);
+$('#rfit').addEventListener('change', () => { if (S.angle) updateRotPreview(); });
+$('#angReset').addEventListener('click', () => { $('#ang').value = 0; updateRotPreview(); });
+$('#angApply').addEventListener('click', applyAngle);
+
+// resize controls
+$('#rw').addEventListener('input', setSizeFromW);
+$('#rh').addEventListener('input', setSizeFromH);
+$('#resApply').addEventListener('click', applyResize);
+$$('#rpre button').forEach(b => b.addEventListener('click', () => {
+  if (!work) return;
+  const W = work.width, H = work.height;
+  if (b.dataset.pct) { const k = +b.dataset.pct / 100; $('#rw').value = Math.max(1, Math.round(W * k)); $('#rh').value = Math.max(1, Math.round(H * k)); }
+  else { const k = +b.dataset.edge / Math.max(W, H); $('#rw').value = Math.max(1, Math.round(W * k)); $('#rh').value = Math.max(1, Math.round(H * k)); }
+}));
+
+// adjust controls
+[['b', 'adjb'], ['c', 'adjc'], ['s', 'adjs']].forEach(([k, id]) => $('#' + id).addEventListener('input', e => {
+  S.adj[k] = +e.target.value; $('#' + k + 'v').textContent = e.target.value; draw();
+}));
+$('#adjReset').addEventListener('click', () => {
+  S.adj = { b: 0, c: 0, s: 0 }; ['b', 'c', 's'].forEach(k => { $('#adj' + k).value = 0; $('#' + k + 'v').textContent = 0; }); draw();
+});
+$('#adjApply').addEventListener('click', applyAdjust);
+
+// header
+$('#open').addEventListener('click', () => $('#file').click());
+$('#open2').addEventListener('click', () => $('#file').click());
+$('#file').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
+$('#undo').addEventListener('click', undo);
+$('#redo').addEventListener('click', redo);
+$('#reset').addEventListener('click', () => { if (original && work !== original) { undoS.push(work); redoS = []; work = original; srcCache = smallCache = null; resetToolState(); layout(); updateUI(); toast('Reverted to the original'); } });
+$('#fmt').addEventListener('change', () => { $('#qwrap').hidden = $('#fmt').value === 'image/png'; });
+$('#q').addEventListener('input', () => { $('#qv').textContent = $('#q').value; });
+$('#dl').addEventListener('click', download);
+
+// drag and drop, paste
+let dragDepth = 0;
+addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; document.body.classList.add('dragging'); });
+addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragging'); } });
+addEventListener('dragover', e => e.preventDefault());
+addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; document.body.classList.remove('dragging'); loadFile(e.dataTransfer.files[0]); });
+addEventListener('paste', e => {
+  const f = [...(e.clipboardData?.files || [])].find(f => f.type.startsWith('image/'));
+  if (f) { e.preventDefault(); fileName = 'pasted'; loadFile(f); }
+});
+
+// keyboard
+addEventListener('keydown', e => {
+  const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName) && document.activeElement.type !== 'range';
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+  else if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
+  else if (e.key === 'Enter' && !typing && work && document.activeElement.tagName !== 'BUTTON') {
+    if (tool === 'crop') applyCrop(); else if (tool === 'persp') applyPersp();
+  }
+});
+addEventListener('resize', () => layout());
+new ResizeObserver(() => layout()).observe(stage);
+
+// sample image: a skewed "document" photographed at an angle, so perspective can be tried instantly
+$('#sample').addEventListener('click', () => {
+  const W = 1600, H = 1100, c = mk(W, H), g = c.getContext('2d');
+  const bg = g.createLinearGradient(0, 0, W, H); bg.addColorStop(0, '#6b4f36'); bg.addColorStop(1, '#3d2c1e');
+  g.fillStyle = bg; g.fillRect(0, 0, W, H);
+  const doc = mk(840, 1188), d = doc.getContext('2d');
+  d.fillStyle = '#fbfaf5'; d.fillRect(0, 0, 840, 1188);
+  d.fillStyle = '#222'; d.font = '700 54px Georgia,serif'; d.fillText('Sample Document', 60, 120);
+  d.fillStyle = '#666'; for (let i = 0; i < 22; i++) d.fillRect(60, 190 + i * 40, i % 5 === 4 ? 420 : 720, 12);
+  d.strokeStyle = '#4c8dff'; d.lineWidth = 8; d.strokeRect(20, 20, 800, 1148);
+  const T = [{ x: 330, y: 90 }, { x: 1180, y: 160 }, { x: 1330, y: 1010 }, { x: 190, y: 930 }];
+  const Hm = homography(T, [{ x: 0, y: 0 }, { x: 840, y: 0 }, { x: 840, y: 1188 }, { x: 0, y: 1188 }]);
+  const sd = d.getImageData(0, 0, 840, 1188), out = g.getImageData(0, 0, W, H), o = out.data;
+  const poly = new Path2D(); T.forEach((p, i) => i ? poly.lineTo(p.x, p.y) : poly.moveTo(p.x, p.y)); poly.closePath();
+  const mask = mk(W, H), mg = mask.getContext('2d'); mg.fillStyle = '#000'; mg.fill(poly);
+  const md = mg.getImageData(0, 0, W, H).data;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = (y * W + x) * 4; if (md[i + 3] < 128) continue;
+    const dn = Hm[6] * x + Hm[7] * y + 1, u = Math.round((Hm[0] * x + Hm[1] * y + Hm[2]) / dn), v = Math.round((Hm[3] * x + Hm[4] * y + Hm[5]) / dn);
+    if (u < 0 || v < 0 || u >= 840 || v >= 1188) continue;
+    const j = (v * 840 + u) * 4; o[i] = sd.data[j]; o[i + 1] = sd.data[j + 1]; o[i + 2] = sd.data[j + 2];
+  }
+  g.putImageData(out, 0, 0);
+  fileName = 'sample'; fromSource(c, W, H); setTool('persp');
+  S.pts = T.map(p => ({ ...p })); draw(); updatePerspPreview();
+});
+
+// debug hook for automated tests
+window.__cw = { get work() { return work; }, S, setTool, applyPersp, applyCrop, applyResize, applyAngle, applyAdjust };
+setTool('crop');
+})();
+</script>
+</body>
+</html>
