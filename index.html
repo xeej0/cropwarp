@@ -107,7 +107,7 @@ body:not(.has) .needs{opacity:.4;pointer-events:none}
     <button id="redo" type="button" class="needs" disabled>Redo</button>
     <button id="reset" type="button" class="needs" disabled>Revert</button>
   </div>
-  <div class="export needs">
+  <div class="export needs" inert>
     <select id="fmt" aria-label="Export format">
       <option value="image/png">PNG</option>
       <option value="image/jpeg">JPEG</option>
@@ -144,7 +144,7 @@ body:not(.has) .needs{opacity:.4;pointer-events:none}
     </div>
   </section>
 
-  <aside id="panel" class="needs">
+  <aside id="panel" class="needs" inert>
     <!-- CROP -->
     <div class="sec on" data-panel="crop">
       <h2>Crop</h2>
@@ -308,7 +308,7 @@ function fromSource(src, w, h) {
   const g = c.getContext('2d'); g.imageSmoothingQuality = 'high';
   g.drawImage(src, 0, 0, c.width, c.height);
   original = c; undoS = []; redoS = [];
-  document.body.classList.add('has');
+  document.body.classList.add('has'); $$('.needs[inert]').forEach(el => { el.inert = false; });
   if (k < 1) toast(`Large image scaled down to ${c.width} x ${c.height}`);
   setWork(c, false);
 }
