@@ -258,6 +258,11 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const MAX_EDGE = 6000;   // images larger than this are scaled down on load
 const MAX_OUT = 10000;   // largest allowed output edge for resize
+// iPhone and iPad Safari refuse canvases over 16.7 megapixels (getContext returns null)
+// and cap total canvas memory, so keep every canvas and the undo history smaller there.
+const IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const MAX_AREA = IOS ? 16e6 : Infinity;
+const UNDO_PX = IOS ? 48e6 : Infinity; // total pixels kept in the undo history
 const stage = $('#stage'), view = $('#view'), ctx = view.getContext('2d');
 const coarse = matchMedia('(pointer:coarse)').matches;
 const HR = coarse ? 24 : 14; // handle hit radius in CSS px
@@ -297,7 +302,7 @@ function loadFile(f) {
   img.src = url;
 }
 function fromSource(src, w, h) {
-  let k = Math.min(1, MAX_EDGE / Math.max(w, h));
+  let k = Math.min(1, MAX_EDGE / Math.max(w, h), Math.sqrt(MAX_AREA / (w * h)));
   const c = mk(Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
   const g = c.getContext('2d'); g.imageSmoothingQuality = 'high';
   g.drawImage(src, 0, 0, c.width, c.height);
@@ -308,9 +313,17 @@ function fromSource(src, w, h) {
 }
 
 /* ---------- state ---------- */
+// Free a canvas's pixels now instead of at garbage collection (matters for Safari's canvas memory cap).
+function release(c) { if (c && c !== original && c !== work && !undoS.includes(c) && !redoS.includes(c)) c.width = c.height = 0; }
+function pushUndo(c) {
+  undoS.push(c);
+  let px = undoS.reduce((n, u) => n + u.width * u.height, 0);
+  while (undoS.length > 1 && (undoS.length > 15 || px > UNDO_PX)) { const d = undoS.shift(); px -= d.width * d.height; release(d); }
+}
+function clearRedo() { const r = redoS; redoS = []; r.forEach(release); }
 function setWork(c, push = true) {
-  if (push && work) { undoS.push(work); if (undoS.length > 15) undoS.shift(); }
-  if (push) redoS = [];
+  if (push && work) pushUndo(work);
+  if (push) clearRedo();
   work = c; srcCache = null; smallCache = null;
   resetToolState(); layout(); updateUI();
 }
@@ -488,7 +501,7 @@ function perspSize() {
   let w = Math.max(d(tl, tr), d(bl, br)), h = Math.max(d(tl, bl), d(tr, br));
   w = Math.max(w, 1); h = Math.max(h, 1);
   if (S.pratio) { const a = w * h; h = Math.sqrt(a / S.pratio); w = h * S.pratio; }
-  const k = Math.min(1, MAX_EDGE / Math.max(w, h));
+  const k = Math.min(1, MAX_EDGE / Math.max(w, h), Math.sqrt(MAX_AREA / (w * h)));
   return [Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k))];
 }
 function isConvex(p) {
@@ -620,14 +633,14 @@ function maxInscribed(w, h, a) {
 function rotated(src, deg, fit) {
   const a = deg * Math.PI / 180, w = src.width, h = src.height;
   const sin = Math.abs(Math.sin(a)), cos = Math.abs(Math.cos(a));
-  const bw = Math.ceil(w * cos + h * sin), bh = Math.ceil(w * sin + h * cos);
-  const full = mk(bw, bh), g = full.getContext('2d');
+  let ow = Math.ceil(w * cos + h * sin), oh = Math.ceil(w * sin + h * cos);
+  if (fit) { const [rw, rh] = maxInscribed(w, h, a); ow = Math.max(1, Math.floor(rw)); oh = Math.max(1, Math.floor(rh)); }
+  // Draw straight into the output (no full-size intermediate canvas, one resample only),
+  // scaled down if the rotated bounding box would exceed the device's canvas limit.
+  const k = Math.min(1, Math.sqrt(MAX_AREA / (ow * oh)));
+  const n = mk(Math.max(1, Math.floor(ow * k)), Math.max(1, Math.floor(oh * k))), g = n.getContext('2d');
   g.imageSmoothingQuality = 'high';
-  g.translate(bw / 2, bh / 2); g.rotate(a); g.drawImage(src, -w / 2, -h / 2);
-  if (!fit) return full;
-  const [rw, rh] = maxInscribed(w, h, a);
-  const n = mk(Math.max(1, Math.floor(rw)), Math.max(1, Math.floor(rh)));
-  n.getContext('2d').drawImage(full, -(bw - n.width) / 2, -(bh - n.height) / 2);
+  g.translate(n.width / 2, n.height / 2); g.rotate(a); g.scale(k, k); g.drawImage(src, -w / 2, -h / 2);
   return n;
 }
 function getSmall() {
@@ -664,7 +677,8 @@ function resizeCanvas(src, w, h) {
 function applyResize() {
   const w = Math.round(+$('#rw').value), h = Math.round(+$('#rh').value);
   if (!(w >= 1 && h >= 1) || w > MAX_OUT || h > MAX_OUT) return toast(`Enter a size between 1 and ${MAX_OUT} px.`);
-  if (w * h > 100e6) return toast('That is over 100 megapixels. Pick a smaller size.');
+  const maxPx = Math.min(100e6, MAX_AREA);
+  if (w * h > maxPx) return toast(`That is over ${Math.round(maxPx / 1e6)} megapixels. Pick a smaller size.`);
   if (w === work.width && h === work.height) return toast('The size is unchanged.');
   setWork(resizeCanvas(work, w, h)); toast(`Resized to ${w} x ${h}`);
 }
@@ -830,7 +844,7 @@ $('#open2').addEventListener('click', () => $('#file').click());
 $('#file').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
 $('#undo').addEventListener('click', undo);
 $('#redo').addEventListener('click', redo);
-$('#reset').addEventListener('click', () => { if (original && work !== original) { undoS.push(work); redoS = []; work = original; srcCache = smallCache = null; resetToolState(); layout(); updateUI(); toast('Reverted to the original'); } });
+$('#reset').addEventListener('click', () => { if (original && work !== original) { pushUndo(work); clearRedo(); work = original; srcCache = smallCache = null; resetToolState(); layout(); updateUI(); toast('Reverted to the original'); } });
 $('#fmt').addEventListener('change', () => { $('#qwrap').hidden = $('#fmt').value === 'image/png'; });
 $('#q').addEventListener('input', () => { $('#qv').textContent = $('#q').value; });
 $('#dl').addEventListener('click', download);
