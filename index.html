@@ -865,6 +865,7 @@ addEventListener('paste', e => {
 addEventListener('keydown', e => {
   const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName) && document.activeElement.type !== 'range';
   const mod = e.ctrlKey || e.metaKey;
+  if (mod && document.activeElement?.type === 'number') return; // let number fields undo their own text
   if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
   else if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
   else if (e.key === 'Enter' && !typing && work && document.activeElement.tagName !== 'BUTTON') {
