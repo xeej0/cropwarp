@@ -297,6 +297,9 @@ function loadFile(f, name) {
   img.onload = () => {
     URL.revokeObjectURL(url);
     fileName = (name || f.name || 'photo').replace(/\.[^.]+$/, '') || 'photo';
+    // Default the export format to the loaded file's own (pasted images stay PNG).
+    const fmt = !name && (f.type === 'image/jpeg' || f.type === 'image/webp') ? f.type : 'image/png';
+    $('#fmt').value = fmt; $('#qwrap').hidden = fmt === 'image/png';
     fromSource(img, img.naturalWidth, img.naturalHeight);
   };
   img.onerror = () => { URL.revokeObjectURL(url); toast('Could not read that image. HEIC is only supported in Safari.'); };
