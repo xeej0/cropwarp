@@ -791,7 +791,8 @@ $$('#ratios button[data-ar]').forEach(b => b.addEventListener('click', () => {
   syncCropInputs(); draw();
 }));
 $('#swapar').addEventListener('click', () => {
-  if (!S.ar || !work) return;
+  if (!work) return;
+  if (!S.ar) return toast('Pick an aspect ratio first, then Swap flips it between landscape and portrait.');
   S.ar = 1 / S.ar; S.arSel = 'custom';
   $$('#ratios button[data-ar]').forEach(x => x.setAttribute('aria-pressed', 'false'));
   const c = S.crop, cx = c.x + c.w / 2, cy = c.y + c.h / 2;
