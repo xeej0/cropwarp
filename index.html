@@ -347,7 +347,7 @@ function resetToolState() {
   S.adj = { b: 0, c: 0, s: 0 }; ['b', 'c', 's'].forEach(k => { $('#adj' + k).value = 0; $('#' + k + 'v').textContent = 0; });
   $('#rw').value = W; $('#rh').value = H;
   if (S.arSel === 'orig') S.ar = W / H;
-  initCrop();
+  initCrop(); if (tool === 'persp') updatePerspPreview();
 }
 function initCrop() {
   const W = work.width, H = work.height;
