@@ -288,6 +288,20 @@ function toast(msg) {
   clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2600);
 }
 
+// Run a slow pixel operation after showing "Working..." so the message paints before the main thread blocks.
+let working = false;
+function heavy(px, fn) {
+  if (px < 4e6) return fn();
+  if (working) return;
+  working = true; toast('Working...'); clearTimeout(toastT);
+  requestAnimationFrame(() => setTimeout(() => {
+    try { fn(); } finally {
+      working = false;
+      if ($('#toast').textContent === 'Working...') $('#toast').classList.remove('show');
+    }
+  }, 0));
+}
+
 /* ---------- loading ---------- */
 function loadFile(f, name) {
   if (!f) return;
@@ -609,9 +623,11 @@ function applyPersp() {
   if (!isConvex(S.pts)) return toast('Move the corners so they form a convex shape.');
   const [ow, oh] = perspSize(), Hm = perspHomography(ow, oh);
   if (!Hm) return toast('Those corners cannot be flattened. Spread them out.');
-  const n = mk(ow, oh);
-  n.getContext('2d').putImageData(warp(getSrc(), Hm, ow, oh), 0, 0);
-  setWork(n); toast(`Flattened to ${ow} x ${oh}`);
+  heavy(ow * oh, () => {
+    const n = mk(ow, oh);
+    n.getContext('2d').putImageData(warp(getSrc(), Hm, ow, oh), 0, 0);
+    setWork(n); toast(`Flattened to ${ow} x ${oh}`);
+  });
 }
 
 /* ---------- rotate ---------- */
@@ -694,20 +710,22 @@ function setSizeFromH() { if ($('#rlock').checked) $('#rw').value = Math.max(1, 
 function applyAdjust() {
   const a = S.adj;
   if (!a.b && !a.c && !a.s) return toast('Move a slider first.');
-  const bf = 1 + a.b / 100, cf = 1 + a.c / 100, s = 1 + a.s / 100;
-  const n = mk(work.width, work.height), g = n.getContext('2d');
-  g.drawImage(work, 0, 0);
-  const img = g.getImageData(0, 0, n.width, n.height), d = img.data;
-  const m = [.213 + .787 * s, .715 - .715 * s, .072 - .072 * s, .213 - .213 * s, .715 + .285 * s, .072 - .072 * s, .213 - .213 * s, .715 - .715 * s, .072 + .928 * s];
-  const c8 = v => v < 0 ? 0 : v > 255 ? 255 : v;
-  for (let i = 0; i < d.length; i += 4) {
-    let r = c8(d[i] * bf), gg = c8(d[i + 1] * bf), b = c8(d[i + 2] * bf);
-    r = c8((r - 127.5) * cf + 127.5); gg = c8((gg - 127.5) * cf + 127.5); b = c8((b - 127.5) * cf + 127.5);
-    d[i] = c8(m[0] * r + m[1] * gg + m[2] * b);
-    d[i + 1] = c8(m[3] * r + m[4] * gg + m[5] * b);
-    d[i + 2] = c8(m[6] * r + m[7] * gg + m[8] * b);
-  }
-  g.putImageData(img, 0, 0); setWork(n); toast('Adjustments applied');
+  heavy(work.width * work.height, () => {
+    const bf = 1 + a.b / 100, cf = 1 + a.c / 100, s = 1 + a.s / 100;
+    const n = mk(work.width, work.height), g = n.getContext('2d');
+    g.drawImage(work, 0, 0);
+    const img = g.getImageData(0, 0, n.width, n.height), d = img.data;
+    const m = [.213 + .787 * s, .715 - .715 * s, .072 - .072 * s, .213 - .213 * s, .715 + .285 * s, .072 - .072 * s, .213 - .213 * s, .715 - .715 * s, .072 + .928 * s];
+    const c8 = v => v < 0 ? 0 : v > 255 ? 255 : v;
+    for (let i = 0; i < d.length; i += 4) {
+      let r = c8(d[i] * bf), gg = c8(d[i + 1] * bf), b = c8(d[i + 2] * bf);
+      r = c8((r - 127.5) * cf + 127.5); gg = c8((gg - 127.5) * cf + 127.5); b = c8((b - 127.5) * cf + 127.5);
+      d[i] = c8(m[0] * r + m[1] * gg + m[2] * b);
+      d[i + 1] = c8(m[3] * r + m[4] * gg + m[5] * b);
+      d[i + 2] = c8(m[6] * r + m[7] * gg + m[8] * b);
+    }
+    g.putImageData(img, 0, 0); setWork(n); toast('Adjustments applied');
+  });
 }
 
 /* ---------- export ---------- */
