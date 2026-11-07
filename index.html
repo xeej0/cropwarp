@@ -802,12 +802,12 @@ $('#swapar').addEventListener('click', () => {
 });
 ['cx', 'cy', 'cw', 'ch'].forEach(id => $('#' + id).addEventListener('change', readCropInputs));
 $('#cropReset').addEventListener('click', () => { initCrop(); draw(); });
-$('#cropApply').addEventListener('click', applyCrop);
+$('#cropApply').addEventListener('click', e => { if (e.detail < 2) applyCrop(); }); // ignore the 2nd click of a double-click
 
 // perspective controls
 $('#pratio').addEventListener('change', e => { S.pratio = +e.target.value; updatePerspPreview(); });
 $('#perspReset').addEventListener('click', () => { resetToolState(); draw(); updatePerspPreview(); });
-$('#perspApply').addEventListener('click', applyPersp);
+$('#perspApply').addEventListener('click', e => { if (e.detail < 2) applyPersp(); });
 
 // rotate controls
 $('#rl').addEventListener('click', () => rotate90(-1));
