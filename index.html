@@ -268,7 +268,7 @@ const stage = $('#stage'), view = $('#view'), ctx = view.getContext('2d');
 const coarse = matchMedia('(pointer:coarse)').matches;
 const HR = coarse ? 24 : 14; // handle hit radius in CSS px
 
-let work = null, original = null, fileName = 'photo';
+let work = null, original = null, fileName = 'photo', saved = null; // saved: the canvas last downloaded
 let undoS = [], redoS = [];
 let tool = 'crop';
 let scale = 1, dpr = 1, disp = null, srcCache = null, smallCache = null;
@@ -292,6 +292,7 @@ function toast(msg) {
 function loadFile(f, name) {
   if (!f) return;
   if (!f.type.startsWith('image/')) return toast('That file is not an image.');
+  if (work && work !== original && work !== saved && !confirm('Open the new image? Your edits to the current image have not been downloaded and will be lost.')) return;
   const url = URL.createObjectURL(f);
   const img = new Image();
   img.onload = () => {
@@ -712,7 +713,7 @@ function applyAdjust() {
 /* ---------- export ---------- */
 function download() {
   const type = $('#fmt').value, q = +$('#q').value / 100;
-  let c = work;
+  let c = work; const src = work;
   if (type === 'image/jpeg') { c = mk(work.width, work.height); const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(work, 0, 0); }
   c.toBlob(b => {
     if (!b) return toast('Export failed. The image may be too large for this browser.');
@@ -720,7 +721,7 @@ function download() {
     if (b.type !== type) toast(`This browser cannot export that format, saved as ${ext.toUpperCase()} instead.`);
     else toast(`Saved ${(b.size / 1024).toFixed(0)} KB`);
     const a = document.createElement('a'); a.href = URL.createObjectURL(b);
-    a.download = `${fileName}-cropwarp.${ext}`; document.body.appendChild(a); a.click(); a.remove();
+    a.download = `${fileName}-cropwarp.${ext}`; document.body.appendChild(a); a.click(); a.remove(); saved = src;
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
   }, type, q);
 }
